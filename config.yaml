@@ -17,7 +17,7 @@ run:
 scenario:
   simpl: ['']
   ll: ['copt']
-  clusters: [32]
+  clusters: [4]
   opts: [Co2L-3H]
 
 countries: ["BO"]
@@ -61,6 +61,7 @@ cluster_options:
     exclude_carriers: []
     remove_stubs: true
     remove_stubs_across_borders: true
+    isolated_set: false
     p_threshold_drop_isolated: 20 # [MW] isolated buses are being discarded if bus mean power is below the specified threshold
     p_threshold_merge_isolated: 300 # [MW] isolated buses are being merged into a single isolated bus if bus mean power is above the specified threshold
   cluster_network:
@@ -171,6 +172,7 @@ lines:
 links:
   p_max_pu: 1.0
   p_nom_max: .inf
+  include_tyndp: true
   under_construction: "zero" # 'zero': set capacity to zero, 'remove': remove, 'keep': with full capacity
 
 transformers:
