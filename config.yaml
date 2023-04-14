@@ -62,8 +62,9 @@ cluster_options:
     remove_stubs: true
     remove_stubs_across_borders: true
     isolated_set: false
-    p_threshold_drop_isolated: 20 # [MW] isolated buses are being discarded if bus mean power is below the specified threshold
-    p_threshold_merge_isolated: 300 # [MW] isolated buses are being merged into a single isolated bus if bus mean power is above the specified threshold
+    p_threshold_drop_isolated: 20 # [MW] isolated buses are being discarded if bus mean power is below the specified threshold (by defalut, 20MW)
+    p_threshold_merge_isolated: 300 # [MW] isolated buses are being merged into a single isolated bus if bus mean power is above the specified threshold (by defalut, 300MW)
+    isolated_exclusion: False
   cluster_network:
     algorithm: kmeans
     feature: solar+onwind-time
@@ -71,6 +72,7 @@ cluster_options:
   alternative_clustering: false  # "False" use Voronoi shapes, "True" use GADM shapes
   distribute_cluster: ['load'] # Distributes cluster nodes per country according to ['load'],['pop'] or ['gdp']
   out_logging: true  # When "True", logging is printed to console
+  busmap_subnetwork: False 
   aggregation_strategies:
     generators:  # use "min" for more conservative assumptions
       p_nom: sum

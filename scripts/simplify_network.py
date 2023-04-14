@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-# SPDX-FileCopyrightText: : 2017-2020 The PyPSA-Eur Authors, 2021 PyPSA-Africa
+# SPDX-FileCopyrightText:  PyPSA-Earth and PyPSA-Eur Authors
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-# coding: utf-8
+
+# -*- coding: utf-8 -*-
 """
 Lifts electrical transmission network to a single 380 kV voltage layer,
 removes dead-ends of the network,
@@ -12,9 +13,10 @@ Relevant Settings
 -----------------
 
 .. code:: yaml
+
     clustering:
-      simplify:
-      aggregation_strategies:
+        simplify:
+        aggregation_strategies:
 
     costs:
         year:
@@ -82,7 +84,6 @@ The rule :mod:`simplify_network` does up to four things:
 
 4. Optionally, if an integer were provided for the wildcard ``{simpl}`` (e.g. ``networks/elec_s500.nc``), the network is clustered to this number of clusters with the routines from the ``cluster_network`` rule with the function ``cluster_network.cluster(...)``. This step is usually skipped!
 """
-
 import logging
 import os
 import sys
@@ -424,21 +425,29 @@ def aggregate_to_substations(n, aggregation_strategies=dict(), buses_i=None):
         logger.info(
             "Aggregating buses that are no substations or have no valid offshore connection"
         )
-        buses_i = list(
-            set(n.buses.index) 
-            - set(n.generators.bus) 
-            - set(n.loads.bus)
+        # isolated buses should be excluded from adjacency_matrix calculations
+        n.determine_network_topology()
+        # duplicated sub-networks mean that there is at least one interconnection between buses
+        i_islands = n.buses[
+            (~n.buses.duplicated(subset=["sub_network"], keep=False))
+            & (n.buses.carrier == "AC")
+        ].index
+
+        isolated_exclusion= cluster_config.get("isolated_exclusion", False)
+        if isolated_exclusion:
+            buses_i = list(
+                set(n.buses.index)
+                - set(i_islands)
+                - set(n.generators.bus)
+                - set(n.loads.bus)
+        )
+        else: 
+            buses_i = list(
+                set(n.buses.index) 
+                - set(n.generators.bus) 
+                - set(n.loads.bus)
             )
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
     weight = pd.concat(
         {
             "Line": n.lines.length / n.lines.s_nom.clip(1e-3),
@@ -457,16 +466,16 @@ def aggregate_to_substations(n, aggregation_strategies=dict(), buses_i=None):
         buses_i
     ] = np.inf  # bus in buses_i should not be assigned to different bus in buses_i
 
+    # avoid assignnment a bus to a wrong country
     for c in n.buses.country.unique():
         incountry_b = n.buses.country == c
         dist.loc[incountry_b, ~incountry_b] = np.inf
 
-    
-    
-    
-    
-    
-    
+    # avoid assignnment DC buses to AC ones
+    for c in n.buses.carrier.unique():
+        incarrier_b = n.buses.carrier == c
+        dist.loc[incarrier_b, ~incarrier_b] = np.inf
+
     busmap = n.buses.index.to_series()
     busmap.loc[buses_i] = dist.idxmin(1)
 
@@ -542,6 +551,161 @@ def cluster(
     return clustering.network, clustering.busmap
 
 
+def drop_isolated_nodes(n, threshold):
+    """
+    Find isolated nodes in the network and drop those of them which don't have
+    load or have a load value lower than a threshold
+
+    Parameters
+    ----------
+    iso_code : PyPSA.Network
+        Original network
+    threshold: float
+        Load power used as a threshold to drop isolated nodes
+
+    Returns
+    -------
+    modified network
+    """
+    n.determine_network_topology()
+
+    # keep original values of the overall load and generation in the network
+    # to track changes due to drop of buses
+    generators_mean_origin = n.generators.p_nom.mean()
+    load_mean_origin = n.loads_t.p_set.mean().mean()
+
+    # duplicated sub-networks mean that there is at least one interconnection between buses
+    off_buses = n.buses[
+        (~n.buses.duplicated(subset=["sub_network"], keep=False))
+        & (n.buses.carrier == "AC")
+    ]
+    i_islands = off_buses.index
+
+    if off_buses.empty:
+        return n
+
+    # skip a isolated bus for countries represented by only isolated nodes
+    for c in off_buses["country"].unique():
+        isc_offbus = off_buses["country"] == c
+        n_bus_off = isc_offbus.sum()
+        n_bus = (n.buses["country"] == c).sum()
+        if n_bus_off == n_bus:
+            i_islands = i_islands[i_islands != off_buses[isc_offbus].index[0]]
+
+    i_load_islands = n.loads_t.p_set.columns.intersection(i_islands)
+
+    # isolated buses without load should be discarded
+    isl_no_load = i_islands.difference(i_load_islands)
+
+    # isolated buses with load lower than a specified threshold should be discarded as well
+    i_small_load = i_load_islands[
+        n.loads_t.p_set[i_load_islands].mean(axis=0) <= threshold
+    ]
+
+    if (i_islands.empty) | (len(i_small_load) == 0):
+        return n
+
+    i_to_drop = isl_no_load.to_list() + i_small_load.to_list()
+
+    i_loads_drop = n.loads[n.loads.bus.isin(i_to_drop)].index
+    i_generators_drop = n.generators[n.generators.bus.isin(i_to_drop)].index
+
+    n.mremove("Bus", i_to_drop)
+    n.mremove("Load", i_loads_drop)
+    n.mremove("Generator", i_generators_drop)
+
+    n.determine_network_topology()
+
+    load_mean_final = n.loads_t.p_set.mean().mean()
+    generators_mean_final = n.generators.p_nom.mean()
+
+    logger.info(
+        f"Dropped {len(i_to_drop)} buses. A resulted load discrepancy is {(100 * ((load_mean_final - load_mean_origin)/load_mean_origin)):2.1}% and {(100 * ((generators_mean_final - generators_mean_origin)/generators_mean_origin)):2.1}% for average load and generation capacity, respectivelly"
+    )
+
+    return n
+
+
+def merge_isolated_nodes(n, threshold, aggregation_strategies=dict()):
+    """
+    Find isolated nodes in the network and merge those of them which have
+    load value below than a specified threshold into a single isolated node
+    which represents all the remote generation
+
+    Parameters
+    ----------
+    n : PyPSA.Network
+        Original network
+    threshold : float
+        Load power used as a threshold to merge isolated nodes
+
+    Returns
+    -------
+    modified network
+    """
+    # keep original values of the overall load and generation in the network
+    # to track changes due to drop of buses
+    generators_mean_origin = n.generators.p_nom.mean()
+    load_mean_origin = n.loads_t.p_set.mean().mean()
+
+    n.determine_network_topology()
+
+    # duplicated sub-networks mean that there is at least one interconnection between buses
+    i_islands = n.buses[
+        (~n.buses.duplicated(subset=["sub_network"], keep=False))
+        & (n.buses.carrier == "AC")
+    ].index
+
+    # isolated buses with load below than a specified threshold should be merged
+    i_load_islands = n.loads_t.p_set.columns.intersection(i_islands)
+    i_suffic_load = i_load_islands[
+        n.loads_t.p_set[i_load_islands].mean(axis=0) <= threshold
+    ]
+
+    # all the noded to be merged should be mapped into a single node
+    map_isolated_node_by_country = (
+        n.buses.loc[i_suffic_load].groupby("country")["bus_id"].first().to_dict()
+    )
+    isolated_buses_mapping = n.buses.loc[i_suffic_load, "country"].replace(
+        map_isolated_node_by_country
+    )
+    busmap = (
+        n.buses.index.to_series()
+        .replace(isolated_buses_mapping)
+        .astype(str)
+        .rename("busmap")
+    )
+
+    # return the original network if no changes are detected
+    if (busmap.index == busmap).all():
+        return n, n.buses.index.to_series()
+
+    bus_strategies, generator_strategies = get_aggregation_strategies(
+        aggregation_strategies
+    )
+
+    clustering = get_clustering_from_busmap(
+        n,
+        busmap,
+        bus_strategies=bus_strategies,
+        aggregate_generators_weighted=True,
+        aggregate_generators_carriers=None,
+        aggregate_one_ports=["Load", "StorageUnit"],
+        line_length_factor=1.0,
+        generator_strategies=generator_strategies,
+        scale_link_capital_costs=False,
+    )
+
+    load_mean_final = n.loads_t.p_set.mean().mean()
+    generators_mean_final = n.generators.p_nom.mean()
+
+    logger.info(
+        f"Merged {len(i_suffic_load)} buses. Load attached to a single bus with discrepancies of {(100 * ((load_mean_final - load_mean_origin)/load_mean_origin)):2.1E}% and {(100 * ((generators_mean_final - generators_mean_origin)/generators_mean_origin)):2.1E}% for load and generation capacity, respectivelly"
+    )
+
+    return clustering.network, busmap
+
+
 if __name__ == "__main__":
     if "snakemake" not in globals():
         from _helpers import mock_snakemake
@@ -597,7 +761,7 @@ if __name__ == "__main__":
     # treatment of outliers (nodes without a profile for considered carrier):
     # all nodes that have no profile of the given carrier are being aggregated to closest neighbor
     if (
-        snakemake.config.get("clustering", {})
+        snakemake.config.get("cluster_options", {})
         .get("cluster_network", {})
         .get("algorithm", "hac")
         == "hac"
@@ -607,9 +771,27 @@ if __name__ == "__main__":
             cluster_config.get("feature", "solar+onwind-time").split("-")[0].split("+")
         )
         for carrier in carriers:
-            buses_i = list(
-                set(n.buses.index) - set(n.generators.query("carrier == @carrier").bus)
-            )
+            # isolated buses should be excluded from adjacency_matrix calculations
+            n.determine_network_topology()
+            # duplicated sub-networks mean that there is at least one interconnection between buses
+            i_islands = n.buses[
+                (~n.buses.duplicated(subset=["sub_network"], keep=False))
+                & (n.buses.carrier == "AC")
+            ].index
+            #Determine if we want to exclude isolated bus or not
+            isolated_exclusion= cluster_config.get("isolated_exclusion", False)
+            if isolated_exclusion:
+                buses_i = list(
+                    set(n.buses.index)
+                    - set(i_islands)
+                    - set(n.generators.query("carrier == @carrier").bus)
+                )
+            else: 
+                buses_i = list(
+                    set(n.buses.index) 
+                    - set(n.generators.query("carrier == @carrier").bus)
+                )
+                
             logger.info(
                 f"clustering preparaton (hac): aggregating {len(buses_i)} buses of type {carrier}."
             )
@@ -639,6 +821,20 @@ if __name__ == "__main__":
     n.buses = n.buses.drop(buses_c, axis=1)
 
     update_p_nom_max(n)
+
+    p_threshold_drop_isolated = max(
+        0.0, cluster_config.get("p_threshold_drop_isolated", 0.0)
+    )
+    p_threshold_merge_isolated = cluster_config.get("p_threshold_merge_isolated", False)
+
+    n = drop_isolated_nodes(n, threshold=p_threshold_drop_isolated)
+    if p_threshold_merge_isolated:
+        n, merged_nodes_map = merge_isolated_nodes(
+            n,
+            threshold=p_threshold_merge_isolated,
+            aggregation_strategies=aggregation_strategies,
+        )
+        busmaps.append(merged_nodes_map)
 
     n.meta = dict(snakemake.config, **dict(wildcards=dict(snakemake.wildcards)))
     n.export_to_netcdf(snakemake.output.network)
