@@ -348,7 +348,7 @@ def attach_conventional_generators(
     conventional_config,
     conventional_inputs,
 ):
-    carriers = set(conventional_carriers) | set(extendable_carriers["Generator"])
+    carriers = set(conventional_carriers) ## | set(extendable_carriers["Generator"])
     _add_missing_carriers_from_costs(n, costs, carriers)
 
     ppl = (
@@ -442,6 +442,8 @@ def attach_hydro(n, costs, ppl):
                 .transpose("time", "name")
                 .to_pandas()
             )
+            
+            #inflow_t=0.8*inflow_t
 
     if "ror" in carriers and not ror.empty:
         n.madd(
@@ -511,7 +513,7 @@ def attach_hydro(n, costs, ppl):
         ).fillna(6)
 
         n.madd(
-            "StorageUnit",
+            "Generator", # StorageUnit is changed in 'generator' 
             hydro.index,
             carrier="hydro",
             bus=hydro["bus"],

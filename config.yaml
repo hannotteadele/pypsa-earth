@@ -136,13 +136,13 @@ electricity:
     H2: 168
 
   extendable_carriers:
-    Generator: [solar, onwind, OCGT] ##  offwind-ac, offwind-dc, are removed
+    Generator: [solar, onwind, OCGT, CCGT] ##  offwind-ac, offwind-dc, are removed
     StorageUnit: []  # battery, H2
     Store: [battery, H2]
     Link: []  # H2 pipeline
 
-  powerplants_filter: (DateOut >= 2022 or DateOut != DateOut)
-  custom_powerplants: false
+  powerplants_filter: Country not in ['Bolivia']
+  custom_powerplants: Country in ['Bolivia']
 
   conventional_carriers: [nuclear, oil, OCGT, CCGT, coal, lignite, geothermal, biomass]
   renewable_carriers: [solar, onwind, hydro]          ## offwind-ac, offwind-dc, are removed
