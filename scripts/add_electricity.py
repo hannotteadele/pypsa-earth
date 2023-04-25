@@ -449,11 +449,8 @@ def attach_hydro(n, costs, ppl, inflows_sddp):
         .rename(index=lambda s: str(s) + " hydro")
     )
     
-    
     ppl = modifiy_hydro_powerplants(ppl)
     
-    inflows_new = modify_inflows(inflows_sddp,ppl)
-
     # TODO: remove this line to address nan when powerplantmatching is stable
     # Current fix, NaN technologies set to ROR
     ppl.loc[ppl.technology.isna(), "technology"] = "Run-Of-River"
@@ -475,18 +472,19 @@ def attach_hydro(n, costs, ppl, inflows_sddp):
                 f"'{snakemake.input.profile_hydro}' is missing "
                 f"inflow time-series for at least one bus: {', '.join(missing_c)}"
             )
+            
+            sddp_datas = snakemake.config["renewable"]["hydro"]["sddp_datas"]
+            if (sddp_datas==True):
+                inflow_t = modify_inflows(inflows_sddp,ppl)
+            else:
+                inflow_t = (
+                    inflow.sel(plant=inflow_stations)
+                    .rename({"plant": "name"})
+                    .assign_coords(name=inflow_idx)
+                    .transpose("time", "name")
+                    .to_pandas()
+                )
 
-            inflow_t = (
-                inflow.sel(plant=inflow_stations)
-                .rename({"plant": "name"})
-                .assign_coords(name=inflow_idx)
-                .transpose("time", "name")
-                .to_pandas()
-            )
-            
-            inflow_t = inflows_new
-            
-            #inflow_t=0.8*inflow_t
 
     if "ror" in carriers and not ror.empty:
         n.madd(
@@ -777,7 +775,11 @@ if __name__ == "__main__":
     )
     ppl = load_powerplants(snakemake.input.powerplants)
     
-    inflows_sddp = load_inflows(snakemake.input.inflows_sddp)
+    sddp_datas = snakemake.config["renewable"]["hydro"]["sddp_datas"]
+    if (sddp_datas==True):
+        inflows_sddp = load_inflows(snakemake.input.inflows_sddp)
+    else :
+        inflows_sddp = false 
     
     if "renewable_carriers" in snakemake.config["electricity"]:
         renewable_carriers = set(snakemake.config["electricity"]["renewable_carriers"])
