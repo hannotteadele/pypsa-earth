@@ -227,7 +227,43 @@ def load_powerplants(ppl_fn):
         .drop(columns=["efficiency"])
         .replace({"carrier": carrier_dict})
     )
+    
+def modifiy_hydro_powerplants(ppl):
+    hydro_plants=ppl
+    hydro_plants.loc[hydro_plants['name'].str.startswith('SRO02'), 'name'] = 'SRO02' # function in order to supress the *
+    hydro_plants.loc[hydro_plants['name'].str.startswith('CHU'), 'name'] = 'CHU'
+    hydro_plants.loc[hydro_plants['name'].str.startswith('PUH'), 'name'] = 'PUH'
+    return hydro_plants
 
+
+def load_inflows(inflows_sddp):
+    return pd.read_csv(inflows_sddp,sep=';', index_col=0)
+
+        
+def modify_inflows(inflows,ppl):   
+    hydro_inflows_dict = {}
+    
+    hydro_plants = ppl
+    
+    for name in hydro_plants.index:
+        capacity = hydro_plants.loc[name, 'p_nom']
+        inflows_series = inflows[hydro_plants.loc[name, 'name']] * capacity
+        hydro_inflows_dict[name] = inflows_series.values
+
+    inflow_t = pd.DataFrame.from_dict(hydro_inflows_dict, orient='columns', dtype='float')
+    inflow_t.columns.name = 'name' 
+
+    time_range = pd.date_range(start='2013-01-01 00:00:00', end='2013-12-31 23:00:00', freq='H')
+
+    # reindex dataframe with time-based indices and integer-based columns
+    inflow_t = inflow_t.set_index(time_range)#.reset_index(drop=True)
+    inflow_t.index.name = 'date'
+
+    return inflow_t
+
+        
+        
+        
 
 def attach_load(n, demand_profiles):
     """
@@ -399,7 +435,7 @@ def attach_conventional_generators(
                 n.generators.loc[idx, attr] = values
 
 
-def attach_hydro(n, costs, ppl):
+def attach_hydro(n, costs, ppl, inflows_sddp):
     if "hydro" not in snakemake.config["renewable"]:
         return
     c = snakemake.config["renewable"]["hydro"]
@@ -412,6 +448,11 @@ def attach_hydro(n, costs, ppl):
         .reset_index(drop=True)
         .rename(index=lambda s: str(s) + " hydro")
     )
+    
+    
+    ppl = modifiy_hydro_powerplants(ppl)
+    
+    inflows_new = modify_inflows(inflows_sddp,ppl)
 
     # TODO: remove this line to address nan when powerplantmatching is stable
     # Current fix, NaN technologies set to ROR
@@ -442,6 +483,8 @@ def attach_hydro(n, costs, ppl):
                 .transpose("time", "name")
                 .to_pandas()
             )
+            
+            inflow_t = inflows_new
             
             #inflow_t=0.8*inflow_t
 
@@ -733,6 +776,9 @@ if __name__ == "__main__":
         Nyears,
     )
     ppl = load_powerplants(snakemake.input.powerplants)
+    
+    inflows_sddp = load_inflows(snakemake.input.inflows_sddp)
+    
     if "renewable_carriers" in snakemake.config["electricity"]:
         renewable_carriers = set(snakemake.config["electricity"]["renewable_carriers"])
     else:
@@ -774,7 +820,7 @@ if __name__ == "__main__":
         extendable_carriers,
         snakemake.config["lines"]["length_factor"],
     )
-    attach_hydro(n, costs, ppl)
+    attach_hydro(n, costs, ppl, inflows_sddp)
 
     estimate_renewable_capacities_irena(n, snakemake.config)
 

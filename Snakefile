@@ -446,6 +446,7 @@ rule add_electricity:
         gadm_shapes="resources/" + RDIR + "shapes/gadm_shapes.geojson",
         hydro_capacities="data/hydro_capacities.csv",
         demand_profiles="resources/" + RDIR + "demand_profiles.csv",
+        inflows_sddp="inflows_datas/SDDP_scaledinflows_2013.csv",
     output:
         "networks/" + RDIR + "elec.nc",
     log:
