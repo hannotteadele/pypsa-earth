@@ -779,7 +779,7 @@ if __name__ == "__main__":
     if (sddp_datas==True):
         inflows_sddp = load_inflows(snakemake.input.inflows_sddp)
     else :
-        inflows_sddp = false 
+        inflows_sddp = 0
     
     if "renewable_carriers" in snakemake.config["electricity"]:
         renewable_carriers = set(snakemake.config["electricity"]["renewable_carriers"])
