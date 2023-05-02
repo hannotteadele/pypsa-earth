@@ -554,7 +554,7 @@ def attach_hydro(n, costs, ppl, inflows_sddp):
         ).fillna(6)
 
         n.madd(
-            "Generator", # StorageUnit is changed in 'generator' 
+            "StorageUnit", # StorageUnit can be changed in 'generator' 
             hydro.index,
             carrier="hydro",
             bus=hydro["bus"],

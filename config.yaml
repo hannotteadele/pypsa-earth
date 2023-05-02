@@ -117,7 +117,7 @@ base_network:
 load_options:
   ssp: "ssp2-2.6" # shared socio-economic pathway (GDP and population growth) scenario to consider
   weather_year: 2013  # Load scenarios available with different weather year (different renewable potentials)
-  prediction_year: 2030  # Load scenarios available with different prediction year (GDP, population)
+  prediction_year: 2020  # Load scenarios available with different prediction year (GDP, population)
   scale: 1  # scales all load time-series, i.e. 2 = doubles load
 
 electricity:
@@ -300,7 +300,7 @@ renewable:
       method: eia  # 'hydro_capacities' to rescale country hydro production by using hydro_capacities, 'eia' to rescale by eia data, false for no rescaling
       year: 2013  # (optional) year of statistics used to rescale the runoff time series. When not provided, the weather year of the snapshots is used
     multiplier: 1.1  # multiplier applied after the normalization of the hydro production; default 1.0
-    sddp_datas: true
+    sddp_datas: False
 
 # TODO: Needs to be adjusted for Africa
 costs:
